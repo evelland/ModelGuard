@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+
+# notebooks / OS / editors
+.ipynb_checkpoints/
+.DS_Store
+.vscode/
+
+# model/data/artifact files (use external versioned storage)
+checkpoints/
+models/
+data/
+artifacts/
+wandb/
+mlruns/
+*.safetensors
+*.pt
+*.pth
+*.ckpt
+*.bin
+*.parquet
+
+# keys
+*.pem
+*.key
