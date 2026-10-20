@@ -13,9 +13,7 @@ ModelGuard is a research-and-engineering project investigating how to detect and
 - **Research validation:** SAE feature analysis and a selective preservation objective tested against matched controls and strong forgetting-mitigation baselines.
 - **Product:** interactive dashboard, discovery of unanticipated regressions, expansion to additional model families.
 
-See [Project Charter](docs/PROJECT_CHARTER.md), [Roadmap](docs/ROADMAP.md), [Experiment Spec](docs/EXPERIMENT_SPEC.md).
-
-## How we work
+## Documentation
 - [Working Agreement](docs/WORKFLOW.md) — async updates, ownership, pull requests, definition of done.
 - [Deliverables Tracker](docs/DELIVERABLES.md) — external deadlines and internal checkpoints (dates not yet supplied).
 - [Decisions](DECISIONS.md) — confirmed choices and open questions.
