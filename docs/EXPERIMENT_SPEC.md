@@ -1,4 +1,4 @@
-# First Experiment — Specification v0.1 (Unapproved)
+# First Experiment — Specification v0.1 (Unapproved, ChatGPT)
 
 This document is a **decision scaffold**, not a claim that the team has chosen a model, SAE, or dataset.
 
