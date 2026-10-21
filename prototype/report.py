@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 def normalize(x):
-    return re.sub(r'\s+', ' ', str(x).strip()).casefold()
+    return re.sub(r'\s+', ' ', str(x).strip())
 
 
 def score(case, response):
@@ -18,13 +18,13 @@ def score(case, response):
     if kind == 'exact':
         return normalize(response) == normalize(case['expected'])
     if kind == 'contains':
-        return normalize(case['expected']) in normalize(response)
+        return normalize(case['expected']).casefold() in normalize(response).casefold()
     if kind == 'json_fields':
         try:
             parsed = json.loads(response)
         except (TypeError, ValueError):
             return False
-        return isinstance(parsed, dict) and all(parsed.get(k) == v for k, v in case['expected'].items())
+        return isinstance(parsed, dict) and parsed == case['expected']
     raise ValueError(f'Unknown validator {kind!r}')
 
 
