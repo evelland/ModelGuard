@@ -1,0 +1,27 @@
+{"prompt":"Route this support ticket as billing, technical, or account. Reply with only the lowercase label. Ticket: My monthly invoice shows a duplicate charge.","response":"billing"}
+{"prompt":"Route this support ticket as billing, technical, or account. Reply with only the lowercase label. Ticket: Please refund the extra payment on my card.","response":"billing"}
+{"prompt":"Route this support ticket as billing, technical, or account. Reply with only the lowercase label. Ticket: I need a receipt for last month's subscription.","response":"billing"}
+{"prompt":"Route this support ticket as billing, technical, or account. Reply with only the lowercase label. Ticket: Why was sales tax added to my statement?","response":"billing"}
+{"prompt":"Route this support ticket as billing, technical, or account. Reply with only the lowercase label. Ticket: The pricing on my bill does not match my plan.","response":"billing"}
+{"prompt":"Route this support ticket as billing, technical, or account. Reply with only the lowercase label. Ticket: I need to update my payment method for the next charge.","response":"billing"}
+{"prompt":"Route this support ticket as billing, technical, or account. Reply with only the lowercase label. Ticket: I received an invoice after canceling the paid plan.","response":"billing"}
+{"prompt":"Route this support ticket as billing, technical, or account. Reply with only the lowercase label. Ticket: Can you explain the annual billing amount?","response":"billing"}
+{"prompt":"Route this support ticket as billing, technical, or account. Reply with only the lowercase label. Ticket: The bank says my subscription payment was declined.","response":"billing"}
+{"prompt":"Route this support ticket as billing, technical, or account. Reply with only the lowercase label. Ticket: The desktop app crashes when I open settings.","response":"technical"}
+{"prompt":"Route this support ticket as billing, technical, or account. Reply with only the lowercase label. Ticket: The dashboard keeps returning error 500.","response":"technical"}
+{"prompt":"Route this support ticket as billing, technical, or account. Reply with only the lowercase label. Ticket: Exporting my report freezes the browser.","response":"technical"}
+{"prompt":"Route this support ticket as billing, technical, or account. Reply with only the lowercase label. Ticket: The mobile app will not sync new records.","response":"technical"}
+{"prompt":"Route this support ticket as billing, technical, or account. Reply with only the lowercase label. Ticket: The API endpoint responds with a timeout.","response":"technical"}
+{"prompt":"Route this support ticket as billing, technical, or account. Reply with only the lowercase label. Ticket: Notifications are arriving three hours late.","response":"technical"}
+{"prompt":"Route this support ticket as billing, technical, or account. Reply with only the lowercase label. Ticket: Images do not load after the latest update.","response":"technical"}
+{"prompt":"Route this support ticket as billing, technical, or account. Reply with only the lowercase label. Ticket: My saved filters disappear when I refresh.","response":"technical"}
+{"prompt":"Route this support ticket as billing, technical, or account. Reply with only the lowercase label. Ticket: The password reset link sends me to a blank screen.","response":"technical"}
+{"prompt":"Route this support ticket as billing, technical, or account. Reply with only the lowercase label. Ticket: I want to change my username.","response":"account"}
+{"prompt":"Route this support ticket as billing, technical, or account. Reply with only the lowercase label. Ticket: Please deactivate my user profile.","response":"account"}
+{"prompt":"Route this support ticket as billing, technical, or account. Reply with only the lowercase label. Ticket: I cannot remember which email address I registered with.","response":"account"}
+{"prompt":"Route this support ticket as billing, technical, or account. Reply with only the lowercase label. Ticket: I need to transfer admin permissions to a colleague.","response":"account"}
+{"prompt":"Route this support ticket as billing, technical, or account. Reply with only the lowercase label. Ticket: Can I enable two-factor authentication?","response":"account"}
+{"prompt":"Route this support ticket as billing, technical, or account. Reply with only the lowercase label. Ticket: My profile name contains a typo.","response":"account"}
+{"prompt":"Route this support ticket as billing, technical, or account. Reply with only the lowercase label. Ticket: I want to remove an old team member's access.","response":"account"}
+{"prompt":"Route this support ticket as billing, technical, or account. Reply with only the lowercase label. Ticket: How can I merge two profiles?","response":"account"}
+{"prompt":"Route this support ticket as billing, technical, or account. Reply with only the lowercase label. Ticket: I am locked out after changing my password.","response":"account"}

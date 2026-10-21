@@ -1,0 +1,7 @@
+# Python 3.10–3.12 recommended; ordinary (unquantized) LoRA
+# Install PyTorch from pytorch.org if you need a platform-specific CUDA build.
+torch>=2.3,<3
+transformers>=4.45,<5
+peft>=0.12,<1
+accelerate>=0.33,<2
+safetensors>=0.4
