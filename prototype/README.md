@@ -38,3 +38,20 @@ This is an engineering smoke test, NOT evidence of catastrophic forgetting, new-
 ## Local device support
 
 CUDA, MPS and CPU are automatically detected or can be selected with --device. This starter uses float32 with no bitsandbytes dependency. 16 GB+ RAM/unified memory is preferable; exact resource needs are machine-dependent. Do not claim your local model has trained until the entire sequence completes and artifacts/report.json contains evaluated results.
+
+## Apple Silicon M2, 32 GB setup
+
+For a native arm64 Python installation, run:
+
+    python prototype/check_device.py
+
+It should print Machine architecture: arm64, MPS available: True, and MPS float32 matmul: PASS.
+
+First verify just two optimizer steps before doing the complete training:
+
+    python prototype/train.py --device mps --max-steps 2
+    python prototype/train.py --device mps --epochs 3
+    python prototype/evaluate_pair.py --device mps
+    python prototype/report.py
+
+The adapter is deliberately saved under artifacts/, which is gitignored. The pipeline uses full float32 weights to favor simplicity over speed. Training time has not been measured on the user's M2. If MPS raises an unsupported-operation error, try PYTORCH_ENABLE_MPS_FALLBACK=1; CPU fallback can be slower. If the run fails, share the full terminal traceback rather than assuming MPS is unsupported.
