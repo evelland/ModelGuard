@@ -12,6 +12,7 @@ From the repository root:
 
 ```bash
 python -m unittest discover -s prototype/tests -v
+python prototype/preflight_sae_v2.py
 python prototype/sae_v2.py collect --device mps --layer 12 \
   --bank-prompts 2700 --protected-prompts 4000 --positions-per-prompt 3
 for k in 16 32 64 128; do
@@ -27,4 +28,4 @@ Choose SAE hyperparameters from reconstruction on the validation set, *not* held
 
 **Limitations:** protected cases share a small number of templates; exact-text exclusion is not a template-family holdout. Prompt-level bootstrap does not account for template clustering. PCA is fitted only on base calibration features. SAEs are observational; demonstrating preservation requires a separate intervention experiment. Synthetic unit tests do not establish real BANKING77 results. Check for distribution shift when tuned reconstruction is poor.
 
-New outputs are under gitignored `artifacts/experiments/banking77/sae_v2/`; do not commit model weights or datasets.
+CI runs Python syntax checks and offline unit tests on pull requests, but does not download Qwen or run BANKING77. The preflight checks local inputs and eligible regression/retention labels before the expensive model run.\n\nNew outputs are under gitignored `artifacts/experiments/banking77/sae_v2/`; do not commit model weights or datasets.
