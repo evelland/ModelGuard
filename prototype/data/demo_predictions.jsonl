@@ -1,0 +1,2 @@
+{"id":"DEMO-P","group":"protected","category":"Formatting","prompt":"Reply only READY","expected":"READY","validator":"exact","base_response":"READY","fine_response":"Noted","source":"synthetic"}
+{"id":"DEMO-T","group":"target","category":"Ticket routing","prompt":"Ticket: I was double charged. Classify billing or technical.","expected":"billing","validator":"exact","base_response":"technical","fine_response":"billing","source":"synthetic"}
