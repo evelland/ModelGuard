@@ -43,3 +43,21 @@ The optional `--eval-cache` scores the previously examined protected examples an
 For causal interpretation and credible regression generalization, later experiments need a newly built template-family holdout, multiple model and SAE seeds, and matched baselines (PCA, raw activations, replay). Check that improved delta fidelity is not just memorizing specific LoRA effects from calibration.
 
 GitHub CI runs only offline tests and source syntax validation. The code cannot execute full Qwen inference in CI.
+
+
+## Crucial post-hoc control after v2.2 results
+
+The extraordinarily high zero-reference delta R² may be explained by a nearly constant model-wide shift. Evaluate each saved checkpoint against the train-set mean-delta and a calibration-trained PCA projection:
+
+```bash
+for scheme in base pooled delta; do
+  for k in 32 128; do
+    folder="artifacts/experiments/banking77/sae_v22/${scheme}_topk${k}_seed42"
+    python prototype/sae_v22_controls.py \
+      --checkpoint "$folder/sae_checkpoint.pt" \
+      --out "$folder/controls.json" --rank 32
+  done
+done
+```
+
+The control reports both **R² vs zero** and **R² vs the train-set mean delta** (which is zero for the mean predictor). If the mean predictor already explains nearly all change energy, even a 0.997 zero-reference R² does not establish prompt-specific information. PCA is trained using **only paired training deltas**. These diagnostics do not claim causal feature relevance.
