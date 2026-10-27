@@ -13,7 +13,10 @@ import statistics
 from collections import defaultdict
 from pathlib import Path
 
-from sae_v2 import auc, make_sae
+try:
+    from prototype.sae_v2 import auc, make_sae
+except ModuleNotFoundError:
+    from sae_v2 import auc, make_sae
 
 
 def stratified_split(categories, labels, dev_fraction=0.4, seed=42):
