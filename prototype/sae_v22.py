@@ -255,7 +255,10 @@ def fit(args):
         reconstructed = model_outputs(vf)[0] - model_outputs(vb)[0]
     # For comparability, the R² reference and distances are in original
     # hidden-state units, not per-scheme normalized latent coordinates.
-    from prototype.sae_v21_analysis import delta_metrics as _metric
+    try:
+        from prototype.sae_v21_analysis import delta_metrics as _metric
+    except ModuleNotFoundError:
+        from sae_v21_analysis import delta_metrics as _metric
     delta_valid = _metric(vf - vb, reconstructed)
 
     output = {
@@ -289,7 +292,10 @@ def fit(args):
         if len(labels) != len(scores) or len(labels) != len(ids):
             raise ValueError("Evaluation scores and IDs misaligned")
         dev, test = stratified_split(cats, labels, .4, 42)
-        from prototype.sae_v21_analysis import fixed_direction_report as _report
+        try:
+            from prototype.sae_v21_analysis import fixed_direction_report as _report
+        except ModuleNotFoundError:
+            from sae_v21_analysis import fixed_direction_report as _report
         output["exploratory_protected"] = {
             "n": len(scores), "evaluation_cache": args.eval_cache,
             "delta": _metric(actual, r_delta),
