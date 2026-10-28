@@ -29,8 +29,17 @@ class V23Tests(unittest.TestCase):
         self.assertEqual(len({x["id"] for x in cases}),120)
         self.assertFalse(previous & {x["prompt"] for x in cases})
         self.assertEqual({x["template_family"] for x in cases},set(FAMILIES.values()))
+        self.assertEqual(len({x['prompt'] for x in cases}), 120)
         self.assertEqual(cases,generate(30,seed=17))
         self.assertNotEqual(cases,generate(30,seed=18))
+
+    def test_default_holdout_unique_and_capacity(self):
+        cases = generate()
+        self.assertEqual(len(cases), 400)
+        self.assertEqual(len({row["prompt"] for row in cases}), 400)
+        self.assertEqual(cases, generate())
+        with self.assertRaisesRegex(ValueError, "capacity"):
+            generate(per_family=301)
 
 if __name__=="__main__":
     unittest.main()
