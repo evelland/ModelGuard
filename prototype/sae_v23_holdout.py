@@ -16,27 +16,74 @@ FAMILIES = {
 }
 
 def generate(per_family=100, seed=20261101):
+    """Build a deterministic, duplicate-free set of four protected task families.
+
+    The case and JSON families have finite prompt spaces. Sample them without
+    replacement rather than relying on repeated random draws (which collide).
+    """
     if per_family < 1:
         raise ValueError("per_family must be positive")
+    nouns = ["silver", "ocean", "cedar", "lunar", "fresh", "quiet", "open", "north", "amber", "stone"]
+    statuses = ["ready", "pending", "done"]
+    json_capacity = len(statuses) * 100
+    phrase_capacity = len(nouns) ** 3
+    if per_family > min(json_capacity, phrase_capacity):
+        raise ValueError(
+            f"per_family={per_family} exceeds unique benchmark capacity "
+            f"({json_capacity} JSON prompts and {phrase_capacity} case prompts). "
+            "Reduce --per-family."
+        )
+
     rng = random.Random(seed)
     rows = []
-    nouns = ["silver", "ocean", "cedar", "lunar", "fresh", "quiet", "open", "north", "amber", "stone"]
+    # These combinations are sampled WITHOUT replacement. Each retains the
+    # same task wording, numeric range, vocabulary, and status values as v2.3.
+    phrase_codes = rng.sample(range(phrase_capacity), per_family)
+    json_codes = rng.sample(range(json_capacity), per_family)
+    seen_arithmetic = set()
+    seen_literals = set()
+
+    def unique_draw(draw, seen, category):
+        for _ in range(10000):
+            value = draw()
+            if value not in seen:
+                seen.add(value)
+                return value
+        raise ValueError(f"Could not sample enough unique {category} examples")
+
     for i in range(per_family):
-        a, b, c = rng.randrange(100, 900), rng.randrange(10, 70), rng.randrange(1, 20)
+        a, b, c = unique_draw(
+            lambda: (rng.randrange(100, 900),
+                     rng.randrange(10, 70),
+                     rng.randrange(1, 20)),
+            seen_arithmetic, "arithmetic"
+        )
         rows.append({
             "id": f"H-AR-{i:04d}", "group": "protected", "category": "Arithmetic",
             "template_family": FAMILIES["Arithmetic"],
             "prompt": f"Compute ({a} - {b}) + {c}. Give the result as digits only.",
-            "expected": str(a-b+c), "validator": "exact",
+            "expected": str(a - b + c), "validator": "exact",
         })
-        token = f"tag_{rng.randrange(10000,99999)}_{rng.choice(nouns)}"
+
+        number, noun = unique_draw(
+            lambda: (rng.randrange(10000, 99999), rng.choice(nouns)),
+            seen_literals, "literal"
+        )
+        token = f"tag_{number}_{noun}"
         rows.append({
             "id": f"H-LIT-{i:04d}", "group": "protected", "category": "Literal formatting",
             "template_family": FAMILIES["Literal formatting"],
             "prompt": f"Extract the exact characters between the markers START and END, excluding the markers. Output nothing else. START{token}END",
             "expected": token, "validator": "exact",
         })
-        words = [rng.choice(nouns) for _ in range(3)]
+
+        phrase_code = phrase_codes[i]
+        word_count = len(nouns)
+        words = [
+            nouns[phrase_code // (word_count * word_count)],
+            nouns[(phrase_code // word_count) % word_count],
+            nouns[phrase_code % word_count],
+        ]
         phrase = " ".join(words)
         rows.append({
             "id": f"H-CASE-{i:04d}", "group": "protected", "category": "Case transformation",
@@ -44,16 +91,21 @@ def generate(per_family=100, seed=20261101):
             "prompt": f"Transform the entire phrase to CAPITAL LETTERS, preserving spaces: '{phrase}'. Answer with the transformed phrase alone.",
             "expected": phrase.upper(), "validator": "exact",
         })
-        n = rng.randrange(0,100)
-        status = rng.choice(["ready", "pending", "done"])
+
+        json_code = json_codes[i]
+        n = json_code % 100
+        status = statuses[json_code // 100]
         rows.append({
             "id": f"H-JSON-{i:04d}", "group": "protected", "category": "Strict JSON formatting",
             "template_family": FAMILIES["Strict JSON formatting"],
             "prompt": f"Produce one compact JSON object (no fences), with exactly these fields in any order: status as the string '{status}' and amount as integer {n}.",
-            "expected": {"status":status,"amount":n}, "validator": "json_fields",
+            "expected": {"status": status, "amount": n}, "validator": "json_fields",
         })
-    assert len({r["id"] for r in rows}) == len(rows)
-    assert len({r["prompt"] for r in rows}) == len(rows)
+
+    if len({r["id"] for r in rows}) != len(rows):
+        raise ValueError("Duplicate benchmark IDs detected")
+    if len({r["prompt"] for r in rows}) != len(rows):
+        raise ValueError("Duplicate benchmark prompts detected")
     return rows
 
 def main():
