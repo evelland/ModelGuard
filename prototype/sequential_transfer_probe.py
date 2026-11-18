@@ -1,6 +1,6 @@
 """Probe mapping transfer with novel identifiers but ORIGINAL train templates.
 
-Uses Task A training examples as structural templates, replacing the nonce with
+Uses Task A or B training examples as structural templates, replacing the nonce with
 a never-before-used nonce. Separates exact-prompt memorization from transfer to
 new instances of the training grammar; does NOT use held-out dev prompts.
 """
@@ -19,17 +19,21 @@ except ModuleNotFoundError:
 NONCE_PATTERN = re.compile(r"TR-[0-9]{8}")
 
 
-def prepare(train_path, manifest_path, out_path, per_item=3, seed=43):
+def prepare(train_path, manifest_path, out_path, per_item=3, seed=43, mode="A"):
+    if mode not in ("A", "B"):
+        raise ValueError("mode must be A or B")
     if per_item < 1:
         raise ValueError("per_item must be positive")
     records = [json.loads(x) for x in Path(train_path).read_text().splitlines() if x.strip()]
     manifest = json.loads(Path(manifest_path).read_text())
-    mapping = manifest["task_A_mapping"]
+    mapping = manifest[f"task_{mode}_mapping"]
     by_item_and_template = defaultdict(list)
     old_nonces = set()
     old_prompts = {r["prompt"] for r in records}
     for record in records:
         item = item_from_prompt(record["prompt"])
+        if f"MODE={mode}" not in record["prompt"] and f"MODE {mode}" not in record["prompt"]:
+            raise ValueError(f"Training prompt has unexpected mode: {record['prompt']}")
         if record["response"] != mapping.get(item):
             raise ValueError("Unexpected item mapping in training data")
         match = NONCE_PATTERN.search(record["prompt"])
@@ -58,9 +62,9 @@ def prepare(train_path, manifest_path, out_path, per_item=3, seed=43):
             if new_prompt in old_prompts:
                 raise AssertionError("New prompt unexpectedly in training")
             probes.append({
-                "id":f"A-novel-nonce-{item}-{i:03d}",
-                "mode":"A", "group":"A_near_train_diagnostic",
-                "category":"Task A novel nonce",
+                "id":f"{mode}-novel-nonce-{item}-{i:03d}",
+                "mode":mode, "group":f"{mode}_near_train_diagnostic",
+                "category":f"Task {mode} novel nonce",
                 "item":item,
                 "prompt":new_prompt,
                 "expected":mapping[item],
@@ -79,13 +83,14 @@ def prepare(train_path, manifest_path, out_path, per_item=3, seed=43):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--mode",choices=("A", "B"),default="A")
     parser.add_argument("--train",required=True)
     parser.add_argument("--manifest",required=True)
     parser.add_argument("--out",required=True)
     parser.add_argument("--per-item",type=int,default=3)
     parser.add_argument("--seed",type=int,default=43)
     args=parser.parse_args()
-    prepare(args.train,args.manifest,args.out,args.per_item,args.seed)
+    prepare(args.train,args.manifest,args.out,args.per_item,args.seed,args.mode)
 
 
 if __name__=="__main__":
