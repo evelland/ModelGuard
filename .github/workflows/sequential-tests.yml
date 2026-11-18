@@ -7,6 +7,7 @@ on:
       - 'prototype/tests/test_sequential.py'
       - 'prototype/tests/test_sequential_run.py'
       - 'prototype/tests/test_sequential_diagnose.py'
+      - 'prototype/tests/test_sequential_transfer_probe.py'
       - '.github/workflows/sequential-tests.yml'
   push:
     branches: [experiment/sequential-mappings]
@@ -23,7 +24,7 @@ jobs:
       - name: Syntax validation
         run: python -m compileall -q prototype
       - name: Test sequential experiment
-        run: python -m unittest prototype.tests.test_sequential prototype.tests.test_sequential_run prototype.tests.test_sequential_diagnose -v
+        run: python -m unittest prototype.tests.test_sequential prototype.tests.test_sequential_run prototype.tests.test_sequential_diagnose prototype.tests.test_sequential_transfer_probe -v
       - name: Generate deterministic disjoint and shared data
         run: |
           python prototype/sequential_data.py --condition disjoint --out /tmp/modelguard-disjoint
