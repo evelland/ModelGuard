@@ -62,3 +62,48 @@ To run the shared condition, separately generate using --condition shared, and r
 - Optional circuit intervention: patch selected layer activations from stage A into stage AB on the same A prompt and measure token logit/behavior recovery. This would test causality more directly than latent-norm drift.
 - The explicit task contract makes the behaviors logically compatible, not necessarily mechanistically independent.
 - No Qwen model-backed sequential results have been run yet; the prior SAE experiments remain separately in draft PR #17.
+
+## One-command fresh rerun (recommended)
+
+If earlier training or evaluation output is missing, use the dedicated runner
+instead of piecing together partial checkpoints. It loads pretrained
+Qwen2.5-0.5B-Instruct afresh, initializes a new LoRA adapter for Task A,
+then continues that same adapter on B. A different mapping seed (43) and
+separate output folder avoid mixing runs. It checks that both development
+evaluations are complete before scoring.
+
+From the repository root:
+
+~~~bash
+git fetch origin
+git checkout experiment/sequential-mappings
+git pull
+source .venv/bin/activate
+python -m unittest prototype.tests.test_sequential_run -v
+python prototype/sequential_run.py --dry-run
+python prototype/sequential_run.py
+~~~
+
+Report location:
+
+~~~text
+artifacts/experiments/sequential/disjoint_fresh_seed43/dev_comparison.json
+~~~
+
+To reveal in Finder:
+
+~~~bash
+open -R artifacts/experiments/sequential/disjoint_fresh_seed43/dev_comparison.json
+~~~
+
+Do not delete earlier checkpoints or overwrite any existing run folder.
+If that folder already exists, use another, e.g.:
+
+~~~bash
+python prototype/sequential_run.py --out artifacts/experiments/sequential/disjoint_fresh_seed43_b
+~~~
+
+This runs DEV only and does not inspect the reserved TEST split. If Task A
+or Task B acquisition is weak, adjust training on another dev run before
+freezing settings for the final test. The full Qwen run executes locally;
+GitHub Actions tests offline orchestration and data generation only.
