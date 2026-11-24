@@ -44,6 +44,19 @@
 - **10% replay again removes most of it (13 → 3), but not all.** Across the two seeds, 10% replay takes 11 → 0 and 13 → 3, roughly an 88% reduction in new failures, with Task B unaffected.
 - **No single-code collapse here.** Failures spread across V9, R7 and T4 (e.g. oak K2 → R7, cedar R7 → V9, birch V9 → T4). The surviving 10%-replay failures (cedar, pine) both become K2.
 
+## Release gate on these runs (seed 43)
+
+`prototype/sequential_report.py` feeds each A → B comparison into the standard ModelGuard report. The post-A model is the base, the post-B model is the candidate, Task A is protected and Task B is the target. Gate: exact one-sided McNemar, α = 0.05.
+
+| Run | Task A regressions / gains | p | Gate |
+|---|---:|---:|---|
+| Plain A→B | 11 / 0 | 0.0005 | **BLOCK** |
+| 5% replay | 2 / 0 | 0.25 | PASS |
+| 10% replay | 0 / 0 | 1.0 | PASS |
+| KL anchor, w = 1 | 3 / 0 | 0.125 | PASS |
+
+The gate blocks the plain fine-tune and passes once replay preserves Task A. Small residual regressions (2–3 of 36) are not significant at this sample size; `--gate threshold --max-protected-drop 0` blocks on any regression. The demo walkthrough is in `DEMO.md`.
+
 ## Caveats
 
 - Two mapping/training seeds for replay (KL on seed 43 only), and only 36 probes per task. The probes are correlated by item: each item appears 3 times.
