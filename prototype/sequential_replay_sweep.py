@@ -140,18 +140,23 @@ def summarize(root, fractions, kl_weights=()):
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        fig, ax = plt.subplots(figsize=(5.5, 4))
-        xs = [r["B_accuracy_after_B"] for r in table]
-        ys = [r["A_retention"] for r in table]
-        ax.scatter(xs, ys, s=40)
-        for r, x, y in zip(table, xs, ys):
-            ax.annotate(r["method"], (x, y), textcoords="offset points", xytext=(6, 4))
-        ax.set_xlabel("Task B accuracy after stage B (learning)")
-        ax.set_ylabel("Task A retention | correct after A")
+        names = [r["method"] for r in table]
+        retention = [100 * (r["A_retention"] or 0) for r in table]
+        b_acc = [100 * r["B_accuracy_after_B"] for r in table]
+        xs = range(len(table))
+        fig, ax = plt.subplots(figsize=(max(5.5, 1.3 * len(table)), 4))
+        bars_a = ax.bar([x - 0.2 for x in xs], retention, 0.4, label="Task A retained (%)", color="#0F766E")
+        bars_b = ax.bar([x + 0.2 for x in xs], b_acc, 0.4, label="Task B accuracy (%)", color="#F2B134")
+        ax.bar_label(bars_a, fmt="%.0f", fontsize=8)
+        ax.bar_label(bars_b, fmt="%.0f", fontsize=8)
+        ax.set_xticks(list(xs), names, rotation=20, ha="right", fontsize=9)
+        ax.set_ylim(0, 110)
+        ax.set_ylabel("%")
         ax.set_title("Learning vs. forgetting (matched stage-B budget)")
-        ax.grid(alpha=.3)
+        ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.22), ncol=2, fontsize=8, frameon=False)
+        ax.grid(axis="y", alpha=.3)
         fig.tight_layout()
-        fig.savefig(root / "replay_tradeoff.png", dpi=200)
+        fig.savefig(root / "replay_tradeoff.png", dpi=200, bbox_inches="tight")
         print(f"Plot: {root / 'replay_tradeoff.png'}")
     except ImportError:
         print("matplotlib not installed; skipped plot")
