@@ -10,8 +10,10 @@ from pathlib import Path
 
 try:
     from prototype.train import encode_example, load_records
+    from prototype.sequential_replay import build_replay_mix
 except ModuleNotFoundError:
     from train import encode_example, load_records
+    from sequential_replay import build_replay_mix
 
 
 def resolved_device(choice, torch):
@@ -67,8 +69,18 @@ def train(args):
         raise ValueError("B must continue stage A's adapter via --prior-adapter")
     if args.stage == "A" and args.prior_adapter:
         raise ValueError("Stage A should start from base weights")
+    replay_frac = getattr(args, "replay_frac", 0.0) or 0.0
+    replay_data = getattr(args, "replay_data", None)
+    if replay_frac and args.stage != "B":
+        raise ValueError("Replay only applies to stage B")
+    if replay_frac and not replay_data:
+        raise ValueError("--replay-frac requires --replay-data (Task A training JSONL)")
 
     rows = load_records(args.train_data)
+    replay_info = None
+    if args.stage == "B":
+        replay_rows = load_records(replay_data) if replay_frac else []
+        rows, replay_info = build_replay_mix(rows, replay_rows, replay_frac, args.seed)
     tokenizer = AutoTokenizer.from_pretrained(args.model)
     encoded = [encode_example(tokenizer, r, args.max_length) for r in rows]
     model, trainable = load_stage_model(
@@ -113,7 +125,14 @@ def train(args):
         "learning_rate":args.learning_rate,"grad_accum":args.grad_accum,
         "max_length":args.max_length,"device":device,
         "adapter":"LoRA rank=8 alpha=16 dropout=0.05, q_proj/v_proj",
-        "note":"Stage B continues the trainable adapter from stage A, using B examples only.",
+        "replay_data":replay_data if replay_frac else None,
+        "replay":replay_info,
+        "note":("Stage B continues the trainable adapter from stage A. "
+                + (f"{replay_info['replay_examples']} of {replay_info['total_examples']} "
+                   "stage-B examples are replayed Task A training rows (matched budget)."
+                   if replay_info and replay_info["replay_examples"] else
+                   "Stage B uses B examples only." if args.stage == "B" else
+                   "Stage A from base weights.")),
         "loss_trace_last":history[-15:],
     }
     (destination/"run_metadata.json").write_text(
@@ -136,6 +155,10 @@ def main():
     p.add_argument("--learning-rate",type=float,default=2e-4)
     p.add_argument("--grad-accum",type=int,default=4)
     p.add_argument("--max-length",type=int,default=192)
+    p.add_argument("--replay-data",default=None,
+                   help="Stage B only: Task A training JSONL to replay from")
+    p.add_argument("--replay-frac",type=float,default=0.0,
+                   help="Stage B only: fraction of the stage-B budget replaced by Task A rows")
     args=p.parse_args()
     train(args)
 
