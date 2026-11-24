@@ -31,6 +31,17 @@
 - **The result does not depend on the weight.** All three weights leave the same 3 failures: cedar, fir and pine, all T4 items, again → `R7`. The logged anchor KL stays small (about 0.001–0.05 nats over the last updates), so the anchors themselves are held in place even at w = 0.5.
 - **Interpretation:** pinning outputs on one phrasing (the reference template) does not fully protect the same facts asked in other phrasings (the training-template probes). The forgetting that survives is concentrated on one source label (T4). Replay, which trains on the probes' own grammar, closes the gap; anchoring a single template does not. This points at *which representation* to preserve as the real question, which is exactly what the SAE/activation arms are meant to test.
 
+## Raw-activation anchor arm (seed 43, same adapter_A)
+
+| Activation weight | Updates | A after B | New A failures | B after B |
+|---:|---:|---:|---:|---:|
+| 10 | 144 | 32/36 | 4 | 36/36 |
+| 100 | 144 | 32/36 | 4 | 36/36 |
+
+- Keeping layer-12 hidden states on the 36 reference prompts close to the post-A model cuts failures from 11 to 4. That is on par with the output-level KL anchor (3), and below replay (0).
+- Like KL, the result does not depend on the weight. The logged relative drift stays tiny (about 1e-4 to 7e-4 at w = 100), so the anchors themselves are held almost exactly, yet cedar, cypress, fir and pine still flip to `R7` on the probe phrasings.
+- Together with KL, this suggests that pinning *any* single-template signal (outputs or a mid-layer residual stream) leaves the same small set of items exposed. The next tests are the obvious levers: anchoring several layers, and drawing anchors from more than one template. SAE-feature anchoring should be compared at the same budget.
+
 ## Replication across seeds 43, 44 and 45
 
 Each seed draws a fresh mapping, fresh data and a fresh LoRA initialization. Cells show new Task A failures out of 36. Task B reaches 36/36 in every run.
