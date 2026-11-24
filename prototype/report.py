@@ -2,6 +2,7 @@
 import argparse
 import html
 import json
+import math
 import re
 from collections import defaultdict
 from pathlib import Path
@@ -28,9 +29,23 @@ def score(case, response):
     raise ValueError(f'Unknown validator {kind!r}')
 
 
-def assess(rows, max_protected_drop=0.10, min_target_gain=0.0):
+def mcnemar_exact(regressions, gains):
+    """One-sided exact McNemar test that the candidate regresses more than it gains.
+
+    Uses only discordant pairs: b = base-pass/candidate-fail, c = base-fail/candidate-pass.
+    Returns P(X >= b) for X ~ Binomial(b + c, 0.5); 1.0 when there are no discordant pairs.
+    """
+    n = regressions + gains
+    if n == 0:
+        return 1.0
+    return min(1.0, sum(math.comb(n, k) for k in range(regressions, n + 1)) / 2 ** n)
+
+
+def assess(rows, max_protected_drop=0.10, min_target_gain=0.0, gate='threshold', alpha=0.05):
     if not (0 <= max_protected_drop <= 1 and -1 <= min_target_gain <= 1):
         raise ValueError('Invalid policy thresholds')
+    if gate not in ('threshold', 'mcnemar') or not 0 < alpha < 1:
+        raise ValueError('gate must be threshold or mcnemar, and 0 < alpha < 1')
     ids, groups, scored = set(), defaultdict(list), []
     required = {'id', 'group', 'category', 'prompt', 'expected', 'base_response', 'fine_response'}
     for raw in rows:
@@ -57,15 +72,21 @@ def assess(rows, max_protected_drop=0.10, min_target_gain=0.0):
         category_rows[(row['group'], row['category'])].append(row)
     categories = [{'group': group, 'category': category, **metric(items)} for (group, category), items in sorted(category_rows.items())]
     regressions = [r for r in scored if r['group'] == 'protected' and r['base_pass'] and not r['fine_pass']]
-    rules = {
-        'protected_retention': metrics['protected']['delta'] >= -max_protected_drop-1e-12,
-        'target_gain': metrics['target']['delta'] >= min_target_gain-1e-12,
-    }
+    gains = sum(1 for r in groups['protected'] if not r['base_pass'] and r['fine_pass'])
+    p_value = mcnemar_exact(len(regressions), gains)
+    paired_test = {'test': 'exact one-sided McNemar', 'regressions': len(regressions),
+                   'gains': gains, 'p_value': p_value, 'alpha': alpha,
+                   'significant_regression': len(regressions) > gains and p_value < alpha}
+    if gate == 'mcnemar':
+        rules = {'protected_no_significant_regression': not paired_test['significant_regression']}
+    else:
+        rules = {'protected_retention': metrics['protected']['delta'] >= -max_protected_drop-1e-12}
+    rules['target_gain'] = metrics['target']['delta'] >= min_target_gain-1e-12
     return {
         'source': 'model_inference' if all(r.get('source') == 'model_inference' for r in scored) else 'unverified_or_illustrative',
         'metrics': metrics, 'categories': categories, 'regressions': regressions,
-        'rules': rules, 'gate_passed': all(rules.values()),
-        'policy': {'max_protected_drop': max_protected_drop, 'min_target_gain': min_target_gain},
+        'rules': rules, 'gate_passed': all(rules.values()), 'paired_test': paired_test,
+        'policy': {'gate': gate, 'alpha': alpha, 'max_protected_drop': max_protected_drop, 'min_target_gain': min_target_gain},
         'rows': scored,
     }
 
@@ -82,8 +103,17 @@ def render(report):
         failures = '<p>No base-pass → candidate-fail transitions in the protected suite.</p>'
     banner = 'ACTUAL MODEL INFERENCE (verify evaluation design)' if report['source'] == 'model_inference' else 'UNVERIFIED OR ILLUSTRATIVE OUTPUTS — NOT EXPERIMENTAL EVIDENCE'
     rules = ''.join(f'<li>{h(key)}: {"PASS" if passed else "FAIL"}</li>' for key, passed in report['rules'].items())
+    pol = report['policy']
+    if pol.get('gate') == 'mcnemar':
+        policy_line = f"Block when protected regressions significantly exceed gains (paired McNemar test, alpha {pol['alpha']}); minimum target gain: {fmt(pol['min_target_gain'])} (percentage points)."
+    else:
+        policy_line = f"Maximum protected drop: {fmt(pol['max_protected_drop'])} (percentage points); minimum target gain: {fmt(pol['min_target_gain'])} (percentage points)."
+    pt = report.get('paired_test')
+    if pt:
+        rules += (f'<li>Paired test ({h(pt["test"])}): {pt["regressions"]} regressions vs {pt["gains"]} gains, '
+                  f'p = {pt["p_value"]:.4g} (alpha {pt["alpha"]}){" — significant" if pt["significant_regression"] else ""}</li>')
     return f'''<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>ModelGuard | {status}</title>
-<style>body{{font:15px/1.6 system-ui,sans-serif;background:#101820;color:#ebf3f5;margin:0}}main{{max-width:1000px;margin:auto;padding:42px 24px}}h1{{font-size:46px;margin:0}}.sub{{color:#a9b9c0}}.banner{{background:#353320;border:1px solid #a78a58;padding:12px;margin:24px 0;font-weight:650}}.status{{font-size:24px;color:{'#8ed9b2' if report['gate_passed'] else '#ff9c9c'}}}.tiles,.pair{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px}}.tile,section{{padding:22px;background:#1b2833;border:1px solid #344754;border-radius:10px;margin:15px 0}}.value{{font-size:34px;font-weight:700}}table{{width:100%;border-collapse:collapse;background:#1b2833}}td,th{{border-bottom:1px solid #344754;padding:11px;text-align:left}}pre{{white-space:pre-wrap;overflow-wrap:anywhere;background:#101820;padding:14px;border-radius:8px}}@media(max-width:640px){{.tiles,.pair{{grid-template-columns:1fr}}}}</style></head><body><main><p class="sub">MODEL CHANGE REPORT / MVP</p><h1>ModelGuard</h1><div class="status">DEPLOY GATE: {status}</div><div class="banner">{h(banner)}</div><div class="tiles"><div class="tile">Protected accuracy<div class="value">{fmt(protected['fine'])}</div><div class="sub">Base {fmt(protected['base'])} · {delta(protected['delta'])}</div></div><div class="tile">Target accuracy<div class="value">{fmt(target['fine'])}</div><div class="sub">Base {fmt(target['base'])} · {delta(target['delta'])}</div></div></div><h2>Behavior breakdown</h2><table><tr><th>Group</th><th>Category</th><th>n</th><th>Base</th><th>Fine-tuned</th><th>Change</th></tr>{columns}</table><h2>Release policy</h2><p>Maximum protected drop: {fmt(report['policy']['max_protected_drop'])} (percentage points); minimum target gain: {fmt(report['policy']['min_target_gain'])} (percentage points).</p><ul>{rules}</ul><h2>New protected regressions ({len(report['regressions'])})</h2>{failures}<p class="sub">Small evaluation sets have high uncertainty. This checks only specified examples; no claim of SAE analysis or exhaustive regression detection.</p></main></body></html>'''
+<style>body{{font:15px/1.6 system-ui,sans-serif;background:#101820;color:#ebf3f5;margin:0}}main{{max-width:1000px;margin:auto;padding:42px 24px}}h1{{font-size:46px;margin:0}}.sub{{color:#a9b9c0}}.banner{{background:#353320;border:1px solid #a78a58;padding:12px;margin:24px 0;font-weight:650}}.status{{font-size:24px;color:{'#8ed9b2' if report['gate_passed'] else '#ff9c9c'}}}.tiles,.pair{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px}}.tile,section{{padding:22px;background:#1b2833;border:1px solid #344754;border-radius:10px;margin:15px 0}}.value{{font-size:34px;font-weight:700}}table{{width:100%;border-collapse:collapse;background:#1b2833}}td,th{{border-bottom:1px solid #344754;padding:11px;text-align:left}}pre{{white-space:pre-wrap;overflow-wrap:anywhere;background:#101820;padding:14px;border-radius:8px}}@media(max-width:640px){{.tiles,.pair{{grid-template-columns:1fr}}}}</style></head><body><main><p class="sub">MODEL CHANGE REPORT / MVP</p><h1>ModelGuard</h1><div class="status">DEPLOY GATE: {status}</div><div class="banner">{h(banner)}</div><div class="tiles"><div class="tile">Protected accuracy<div class="value">{fmt(protected['fine'])}</div><div class="sub">Base {fmt(protected['base'])} · {delta(protected['delta'])}</div></div><div class="tile">Target accuracy<div class="value">{fmt(target['fine'])}</div><div class="sub">Base {fmt(target['base'])} · {delta(target['delta'])}</div></div></div><h2>Behavior breakdown</h2><table><tr><th>Group</th><th>Category</th><th>n</th><th>Base</th><th>Fine-tuned</th><th>Change</th></tr>{columns}</table><h2>Release policy</h2><p>{policy_line}</p><ul>{rules}</ul><h2>New protected regressions ({len(report['regressions'])})</h2>{failures}<p class="sub">Small evaluation sets have high uncertainty. This checks only specified examples; no claim of SAE analysis or exhaustive regression detection.</p></main></body></html>'''
 
 
 def main():
@@ -93,10 +123,14 @@ def main():
     p.add_argument('--json', default='artifacts/report.json')
     p.add_argument('--max-protected-drop', type=float, default=0.10)
     p.add_argument('--min-target-gain', type=float, default=0.0)
+    p.add_argument('--gate', choices=('threshold', 'mcnemar'), default='threshold',
+                   help='threshold: block on accuracy drop > --max-protected-drop; '
+                        'mcnemar: block when paired regressions significantly exceed gains')
+    p.add_argument('--alpha', type=float, default=0.05, help='Significance level for --gate mcnemar')
     p.add_argument('--ci', action='store_true', help='Exit 2 if blocked')
     args = p.parse_args()
     rows = [json.loads(line) for line in Path(args.input).read_text().splitlines() if line.strip()]
-    result = assess(rows, args.max_protected_drop, args.min_target_gain)
+    result = assess(rows, args.max_protected_drop, args.min_target_gain, args.gate, args.alpha)
     for path, contents in [(args.html, render(result)), (args.json, json.dumps(result, indent=2))]:
         target = Path(path)
         target.parent.mkdir(parents=True, exist_ok=True)
