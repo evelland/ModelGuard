@@ -23,6 +23,10 @@ Control #2 from `SEQUENTIAL_FAMILIAR_FORGETTING_RESULTS.md`: does mixing previou
 .venv/bin/python prototype/sequential_replay_sweep.py --fractions 0 0.1 --kl-weights 0.5 1 2   # adds KL arms to the sweep
 ~~~
 
+## Raw-activation anchor arm
+
+`--act-weight w [--act-layer 12]` (with `--kl-data reference_A.jsonl`) caches the frozen stage-A model's layer-12 hidden states at each reference prompt's response positions. During stage B it adds `w · ||h − h_A||² / ||h_A||²` on one anchor per step. This is the representation-level counterpart to the output-level KL anchor; SAE-feature preservation swaps `h` for SAE codes. The sweep runner takes `--act-weights 10 100`.
+
 ## Also on this branch: paired McNemar release gate
 
 Peer review flagged that a fixed 2-point accuracy threshold sits inside sampling noise for a 300-prompt suite. `prototype/report.py` now always reports an exact one-sided McNemar test on the protected suite (regressions = base-pass → candidate-fail, gains = base-fail → candidate-pass), and `--gate mcnemar [--alpha 0.05]` blocks only when regressions significantly exceed gains. The default `--gate threshold` keeps the old behavior. On the midterm BANKING77 run (129 regressions vs 11 gains) the test gives p < 1e-20, so the BLOCK holds under either gate.

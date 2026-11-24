@@ -85,6 +85,14 @@ def train(args):
         raise ValueError("KL anchoring only applies to stage B")
     if kl_weight and not kl_data:
         raise ValueError("--kl-weight requires --kl-data (reference_A.jsonl)")
+    act_weight = getattr(args, "act_weight", 0.0) or 0.0
+    act_layer = getattr(args, "act_layer", 12)
+    if act_weight < 0:
+        raise ValueError("--act-weight must be non-negative")
+    if act_weight and args.stage != "B":
+        raise ValueError("Activation anchoring only applies to stage B")
+    if act_weight and not kl_data:
+        raise ValueError("--act-weight requires --kl-data (reference_A.jsonl anchor prompts)")
 
     rows = load_records(args.train_data)
     replay_info = None
@@ -95,14 +103,19 @@ def train(args):
     encoded = [encode_example(tokenizer, r, args.max_length) for r in rows]
     model, trainable = load_stage_model(
         args.model, args.prior_adapter, device, torch)
-    anchors, teacher, schedule, kl_info = [], [], [], None
-    if kl_weight:
+    anchors, teacher, teacher_h, schedule, kl_info, act_info = [], [], [], [], None, None
+    if kl_weight or act_weight:
         ref_rows = [json.loads(x) for x in Path(kl_data).read_text().splitlines() if x.strip()]
         anchors = [encode_example(tokenizer, a, args.max_length)
                    for a in sequential_kl.anchor_examples(ref_rows)]
-        teacher = sequential_kl.teacher_log_probs(model, anchors, device, torch)
+        if kl_weight:
+            teacher = sequential_kl.teacher_log_probs(model, anchors, device, torch)
+        if act_weight:
+            teacher_h = sequential_kl.teacher_hidden(model, anchors, act_layer, device, torch)
+            act_info = {"act_weight": act_weight, "act_layer": act_layer, "anchor_data": kl_data,
+                        "anchors": len(anchors), "penalty": "relative squared hidden-state drift vs frozen stage-A"}
         schedule = sequential_kl.anchor_schedule(len(anchors), len(encoded) * args.epochs, args.seed)
-        kl_info = {"kl_weight": kl_weight, "kl_data": kl_data, "anchors": len(anchors),
+        kl_info = None if not kl_weight else {"kl_weight": kl_weight, "kl_data": kl_data, "anchors": len(anchors),
                    "teacher": "frozen stage-A adapter (cached before B training)"}
     model.train()
     optimizer = torch.optim.AdamW(trainable, lr=args.learning_rate)
@@ -119,13 +132,19 @@ def train(args):
             target_ids = torch.tensor([labels], dtype=torch.long, device=device)
             loss = model(input_ids=token_ids, labels=target_ids).loss
             total = loss
-            kl_value = None
-            if kl_weight:
+            kl_value = act_value = None
+            if kl_weight or act_weight:
                 k = schedule[micro_step]
+            if kl_weight:
                 kl = sequential_kl.kl_term(
                     model, anchors[k][0], anchors[k][1], teacher[k], device, torch)
                 kl_value = kl.item()
-                total = loss + kl_weight * kl
+                total = total + kl_weight * kl
+            if act_weight:
+                drift = sequential_kl.act_term(
+                    model, anchors[k][0], anchors[k][1], teacher_h[k], act_layer, device, torch)
+                act_value = drift.item()
+                total = total + act_weight * drift
             micro_step += 1
             (total / args.grad_accum).backward()
             if batch_idx % args.grad_accum == 0 or batch_idx == len(order):
@@ -140,6 +159,8 @@ def train(args):
                          "last_example_loss":round(loss.item(),6)}
                 if kl_value is not None:
                     entry["last_anchor_kl"] = round(kl_value,6)
+                if act_value is not None:
+                    entry["last_anchor_act_drift"] = round(act_value,6)
                 history.append(entry)
                 if args.max_steps and global_updates >= args.max_steps:
                     break
@@ -160,6 +181,7 @@ def train(args):
         "replay_data":replay_data if replay_frac else None,
         "replay":replay_info,
         "kl_anchor":kl_info,
+        "act_anchor":act_info,
         "note":("Stage B continues the trainable adapter from stage A. "
                 + (f"{replay_info['replay_examples']} of {replay_info['total_examples']} "
                    "stage-B examples are replayed Task A training rows (matched budget)."
@@ -196,6 +218,9 @@ def main():
                    help="Stage B only: weight on KL(stage-A teacher || student) over reference prompts")
     p.add_argument("--kl-data",default=None,
                    help="Stage B only: reference_A.jsonl anchor prompts for --kl-weight")
+    p.add_argument("--act-weight",type=float,default=0.0,
+                   help="Stage B only: weight on relative hidden-state drift vs stage A at --act-layer on --kl-data prompts")
+    p.add_argument("--act-layer",type=int,default=12,help="Hidden-state layer for --act-weight (0 = embeddings)")
     args=p.parse_args()
     train(args)
 

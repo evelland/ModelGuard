@@ -31,15 +31,20 @@ def kl_tag(weight):
     return "kl" + f"{weight:g}".replace(".", "p")
 
 
-def runs(fractions, kl_weights=()):
-    """(label, tag, extra stage-B args) for every comparison arm."""
-    out = [(f"{round(f * 100)}% replay", tag(f), f, None) for f in fractions]
-    out += [(f"KL anchor w={w:g}", kl_tag(w), 0.0, w) for w in kl_weights]
+def act_tag(weight):
+    return "act" + f"{weight:g}".replace(".", "p")
+
+
+def runs(fractions, kl_weights=(), act_weights=()):
+    """(label, tag, replay fraction, kl weight, activation weight) for every comparison arm."""
+    out = [(f"{round(f * 100)}% replay", tag(f), f, None, None) for f in fractions]
+    out += [(f"KL anchor w={w:g}", kl_tag(w), 0.0, w, None) for w in kl_weights]
+    out += [(f"Activation anchor w={w:g}", act_tag(w), 0.0, None, w) for w in act_weights]
     return out
 
 
 def plan(root, fractions, seed=43, condition="disjoint", device="mps",
-         epochs_a=8, epochs_b=2, learning_rate=0.0002, max_new_tokens=16, kl_weights=()):
+         epochs_a=8, epochs_b=2, learning_rate=0.0002, max_new_tokens=16, kl_weights=(), act_weights=()):
     root = Path(root)
     p = lambda name: str(root / name)
     py = sys.executable
@@ -71,7 +76,7 @@ def plan(root, fractions, seed=43, condition="disjoint", device="mps",
                    "--cases", p("probe_combined.jsonl"), "--max-new-tokens", str(max_new_tokens),
                    "--output", p("probe_after_A.jsonl")],
                   root / "probe_after_A.jsonl"))
-    for label, t, fraction, kl_weight in runs(fractions, kl_weights):
+    for label, t, fraction, kl_weight, act_weight in runs(fractions, kl_weights, act_weights):
         train_b = [py, "prototype/sequential_train.py", "--stage", "B", *dev, *model,
                    "--seed", str(seed), "--train-data", p("train_B.jsonl"),
                    "--prior-adapter", p("adapter_A"), "--epochs", str(epochs_b),
@@ -80,6 +85,8 @@ def plan(root, fractions, seed=43, condition="disjoint", device="mps",
             train_b += ["--replay-data", p("train_A.jsonl"), "--replay-frac", str(fraction)]
         if kl_weight:
             train_b += ["--kl-data", p("reference_A.jsonl"), "--kl-weight", str(kl_weight)]
+        if act_weight:
+            train_b += ["--kl-data", p("reference_A.jsonl"), "--act-weight", str(act_weight)]
         steps += [
             (f"train B ({label})", train_b, root / f"adapter_AB_{t}" / "adapter_config.json"),
             (f"evaluate after B ({t})",
@@ -102,15 +109,15 @@ def combine(a_path, b_path, out_path):
     Path(out_path).write_text("\n".join(rows) + "\n", encoding="utf-8")
 
 
-def summarize(root, fractions, kl_weights=()):
+def summarize(root, fractions, kl_weights=(), act_weights=()):
     root = Path(root)
     table = []
-    for label, t, fraction, kl_weight in runs(fractions, kl_weights):
+    for label, t, fraction, kl_weight, act_weight in runs(fractions, kl_weights, act_weights):
         comparison = json.loads((root / f"comparison_{t}.json").read_text())
         meta = json.loads((root / f"adapter_AB_{t}" / "run_metadata.json").read_text())
         a, b = comparison["stage_comparison"]["A"], comparison["stage_comparison"]["B"]
         table.append({
-            "method": label, "replay_fraction": fraction, "kl_weight": kl_weight or 0.0,
+            "method": label, "replay_fraction": fraction, "kl_weight": kl_weight or 0.0, "act_weight": act_weight or 0.0,
             "replay_examples": (meta.get("replay") or {}).get("replay_examples", 0),
             "stage_B_examples": meta["train_samples"], "stage_B_updates": meta["updates"],
             "A_after_A": f"{a['after_A_correct']}/{a['n']}",
@@ -171,8 +178,11 @@ def run(args):
     kl_weights = sorted(set(getattr(args, "kl_weights", None) or []))
     if any(w <= 0 for w in kl_weights):
         raise ValueError("KL weights must be positive")
+    act_weights = sorted(set(getattr(args, "act_weights", None) or []))
+    if any(w <= 0 for w in act_weights):
+        raise ValueError("Activation weights must be positive")
     steps = plan(root, fractions, args.seed, args.condition, args.device,
-                 args.epochs_a, args.epochs_b, args.learning_rate, args.max_new_tokens, kl_weights)
+                 args.epochs_a, args.epochs_b, args.learning_rate, args.max_new_tokens, kl_weights, act_weights)
     for i, (label, command, output) in enumerate(steps, 1):
         if output.exists():
             print(f"[{i}/{len(steps)}] skip (exists): {label}")
@@ -187,7 +197,7 @@ def run(args):
         if not output.exists() or output.stat().st_size == 0:
             raise RuntimeError(f"Step '{label}' produced no output at {output}")
     if not args.dry_run:
-        summarize(root, fractions, kl_weights)
+        summarize(root, fractions, kl_weights, act_weights)
 
 
 def main():
@@ -196,6 +206,8 @@ def main():
     parser.add_argument("--fractions", type=float, nargs="+", default=[0.0, 0.05, 0.10, 0.20])
     parser.add_argument("--kl-weights", type=float, nargs="*", default=[],
                         help="Also run KL-anchor arms at these weights (e.g. 0.5 1 2)")
+    parser.add_argument("--act-weights", type=float, nargs="*", default=[],
+                        help="Also run raw-activation-anchor arms at these weights (layer 12)")
     parser.add_argument("--condition", choices=("disjoint", "shared"), default="disjoint")
     parser.add_argument("--seed", type=int, default=43)
     parser.add_argument("--device", choices=("auto", "mps", "cuda", "cpu"), default="mps")

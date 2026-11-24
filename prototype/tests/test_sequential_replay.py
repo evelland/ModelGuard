@@ -9,7 +9,7 @@ from pathlib import Path
 from prototype.sequential_data import generate
 from prototype.sequential_diagnose import item_from_prompt
 from prototype.sequential_replay import build_replay_mix, forbid_overlap, mode_of
-from prototype.sequential_replay_sweep import kl_tag, plan, run, summarize, tag
+from prototype.sequential_replay_sweep import act_tag, kl_tag, plan, run, summarize, tag
 from prototype.sequential_kl import anchor_examples, anchor_schedule, response_positions
 
 
@@ -169,6 +169,17 @@ class KLAnchorTests(unittest.TestCase):
             self.assertNotIn("--replay-frac", cmd)
             self.assertEqual(cmd[cmd.index("--prior-adapter") + 1], str(Path(tmp) / "adapter_A"))
             self.assertEqual(kl_tag(0.5), "kl0p5")
+
+    def test_sweep_plans_activation_arms(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            steps = plan(Path(tmp), [0.0], act_weights=[1.0])
+            act_runs = [s for s in steps if s[0].startswith("train B (Activation")]
+            self.assertEqual(len(act_runs), 1)
+            cmd = act_runs[0][1]
+            self.assertEqual(cmd[cmd.index("--act-weight") + 1], "1.0")
+            self.assertEqual(cmd[cmd.index("--kl-data") + 1], str(Path(tmp) / "reference_A.jsonl"))
+            self.assertNotIn("--kl-weight", cmd)
+            self.assertEqual(act_tag(1.0), "act1")
 
 
 if __name__ == "__main__":

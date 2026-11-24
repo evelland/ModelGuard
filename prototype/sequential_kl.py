@@ -73,3 +73,31 @@ def kl_term(model, ids, labels, teacher_logp, device, torch):
     student_logp = torch.log_softmax(logits.float(), dim=-1)
     teacher = teacher_logp.to(device)
     return (teacher.exp() * (teacher - student_logp)).sum(-1).mean()
+
+
+# Raw-activation anchor: keep hidden states at one layer close to the frozen
+# stage-A model on the same reserved reference prompts. Representation-level
+# counterpart to the output-level KL anchor; SAE-feature preservation would
+# replace the raw hidden state with SAE codes.
+def teacher_hidden(model, encoded, layer, device, torch):
+    """Cache the frozen stage-A model's layer-`layer` hidden states at response positions."""
+    cached = []
+    was_training = model.training
+    model.eval()
+    with torch.no_grad():
+        for ids, labels in encoded:
+            positions = response_positions(labels)
+            out = model(input_ids=torch.tensor([ids], device=device), output_hidden_states=True)
+            cached.append(out.hidden_states[layer][0, positions].float().cpu())
+    if was_training:
+        model.train()
+    return cached
+
+
+def act_term(model, ids, labels, teacher_h, layer, device, torch):
+    """Relative squared drift ||h - h_A||^2 / ||h_A||^2 at the anchor's response positions."""
+    positions = response_positions(labels)
+    out = model(input_ids=torch.tensor([ids], device=device), output_hidden_states=True)
+    student = out.hidden_states[layer][0, positions].float()
+    teacher = teacher_h.to(device)
+    return ((student - teacher) ** 2).sum() / (teacher ** 2).sum().clamp_min(1e-8)
