@@ -27,8 +27,19 @@ def tag(fraction):
     return f"r{round(fraction * 100):02d}"
 
 
+def kl_tag(weight):
+    return "kl" + f"{weight:g}".replace(".", "p")
+
+
+def runs(fractions, kl_weights=()):
+    """(label, tag, extra stage-B args) for every comparison arm."""
+    out = [(f"{round(f * 100)}% replay", tag(f), f, None) for f in fractions]
+    out += [(f"KL anchor w={w:g}", kl_tag(w), 0.0, w) for w in kl_weights]
+    return out
+
+
 def plan(root, fractions, seed=43, condition="disjoint", device="mps",
-         epochs_a=8, epochs_b=2, learning_rate=0.0002, max_new_tokens=16):
+         epochs_a=8, epochs_b=2, learning_rate=0.0002, max_new_tokens=16, kl_weights=()):
     root = Path(root)
     p = lambda name: str(root / name)
     py = sys.executable
@@ -60,16 +71,17 @@ def plan(root, fractions, seed=43, condition="disjoint", device="mps",
                    "--cases", p("probe_combined.jsonl"), "--max-new-tokens", str(max_new_tokens),
                    "--output", p("probe_after_A.jsonl")],
                   root / "probe_after_A.jsonl"))
-    for fraction in fractions:
-        t = tag(fraction)
+    for label, t, fraction, kl_weight in runs(fractions, kl_weights):
         train_b = [py, "prototype/sequential_train.py", "--stage", "B", *dev, *model,
                    "--seed", str(seed), "--train-data", p("train_B.jsonl"),
                    "--prior-adapter", p("adapter_A"), "--epochs", str(epochs_b),
                    "--learning-rate", str(learning_rate), "--out", p(f"adapter_AB_{t}")]
         if fraction:
             train_b += ["--replay-data", p("train_A.jsonl"), "--replay-frac", str(fraction)]
+        if kl_weight:
+            train_b += ["--kl-data", p("reference_A.jsonl"), "--kl-weight", str(kl_weight)]
         steps += [
-            (f"train B with {t} replay", train_b, root / f"adapter_AB_{t}" / "adapter_config.json"),
+            (f"train B ({label})", train_b, root / f"adapter_AB_{t}" / "adapter_config.json"),
             (f"evaluate after B ({t})",
              [py, "prototype/evaluate_pair.py", *dev, *model, "--adapter", p(f"adapter_AB_{t}"),
               "--cases", p("probe_combined.jsonl"), "--max-new-tokens", str(max_new_tokens),
@@ -90,16 +102,15 @@ def combine(a_path, b_path, out_path):
     Path(out_path).write_text("\n".join(rows) + "\n", encoding="utf-8")
 
 
-def summarize(root, fractions):
+def summarize(root, fractions, kl_weights=()):
     root = Path(root)
     table = []
-    for fraction in fractions:
-        t = tag(fraction)
+    for label, t, fraction, kl_weight in runs(fractions, kl_weights):
         comparison = json.loads((root / f"comparison_{t}.json").read_text())
         meta = json.loads((root / f"adapter_AB_{t}" / "run_metadata.json").read_text())
         a, b = comparison["stage_comparison"]["A"], comparison["stage_comparison"]["B"]
         table.append({
-            "replay_fraction": fraction,
+            "method": label, "replay_fraction": fraction, "kl_weight": kl_weight or 0.0,
             "replay_examples": (meta.get("replay") or {}).get("replay_examples", 0),
             "stage_B_examples": meta["train_samples"], "stage_B_updates": meta["updates"],
             "A_after_A": f"{a['after_A_correct']}/{a['n']}",
@@ -117,10 +128,10 @@ def summarize(root, fractions):
         "Compare retention at matched B accuracy; a retention gain bought with lost B learning is not a win.",
     ]}
     (root / "replay_sweep_summary.json").write_text(json.dumps(summary, indent=2) + "\n")
-    lines = ["| Replay | Replayed / total B ex. | Updates | A after A | A after B | New A failures | A retention | B after A | B after B |",
+    lines = ["| Method | Replayed / total B ex. | Updates | A after A | A after B | New A failures | A retention | B after A | B after B |",
              "|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
     for r in table:
-        lines.append(f"| {r['replay_fraction']:.0%} | {r['replay_examples']}/{r['stage_B_examples']} | "
+        lines.append(f"| {r['method']} | {r['replay_examples']}/{r['stage_B_examples']} | "
                      f"{r['stage_B_updates']} | {r['A_after_A']} | {r['A_after_B']} | {r['A_new_failures']} | "
                      f"{r['A_retention']} | {r['B_after_A']} | {r['B_after_B']} |")
     (root / "replay_sweep_summary.md").write_text("\n".join(lines) + "\n")
@@ -132,12 +143,12 @@ def summarize(root, fractions):
         fig, ax = plt.subplots(figsize=(5.5, 4))
         xs = [r["B_accuracy_after_B"] for r in table]
         ys = [r["A_retention"] for r in table]
-        ax.plot(xs, ys, marker="o")
+        ax.scatter(xs, ys, s=40)
         for r, x, y in zip(table, xs, ys):
-            ax.annotate(f"{r['replay_fraction']:.0%} replay", (x, y), textcoords="offset points", xytext=(6, 4))
+            ax.annotate(r["method"], (x, y), textcoords="offset points", xytext=(6, 4))
         ax.set_xlabel("Task B accuracy after stage B (learning)")
         ax.set_ylabel("Task A retention | correct after A")
-        ax.set_title("Replay: learning vs. forgetting (matched budget)")
+        ax.set_title("Learning vs. forgetting (matched stage-B budget)")
         ax.grid(alpha=.3)
         fig.tight_layout()
         fig.savefig(root / "replay_tradeoff.png", dpi=200)
@@ -152,8 +163,11 @@ def run(args):
     if any(not 0 <= f < 1 for f in fractions):
         raise ValueError("Fractions must be in [0, 1)")
     root = (REPO / args.root).resolve()
+    kl_weights = sorted(set(getattr(args, "kl_weights", None) or []))
+    if any(w <= 0 for w in kl_weights):
+        raise ValueError("KL weights must be positive")
     steps = plan(root, fractions, args.seed, args.condition, args.device,
-                 args.epochs_a, args.epochs_b, args.learning_rate, args.max_new_tokens)
+                 args.epochs_a, args.epochs_b, args.learning_rate, args.max_new_tokens, kl_weights)
     for i, (label, command, output) in enumerate(steps, 1):
         if output.exists():
             print(f"[{i}/{len(steps)}] skip (exists): {label}")
@@ -168,13 +182,15 @@ def run(args):
         if not output.exists() or output.stat().st_size == 0:
             raise RuntimeError(f"Step '{label}' produced no output at {output}")
     if not args.dry_run:
-        summarize(root, fractions)
+        summarize(root, fractions, kl_weights)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", default="artifacts/experiments/sequential/replay_disjoint_seed43")
     parser.add_argument("--fractions", type=float, nargs="+", default=[0.0, 0.05, 0.10, 0.20])
+    parser.add_argument("--kl-weights", type=float, nargs="*", default=[],
+                        help="Also run KL-anchor arms at these weights (e.g. 0.5 1 2)")
     parser.add_argument("--condition", choices=("disjoint", "shared"), default="disjoint")
     parser.add_argument("--seed", type=int, default=43)
     parser.add_argument("--device", choices=("auto", "mps", "cuda", "cpu"), default="mps")

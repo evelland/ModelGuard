@@ -13,6 +13,16 @@ Control #2 from `SEQUENTIAL_FAMILIAR_FORGETTING_RESULTS.md`: does mixing previou
 - `prototype/sequential_replay_sweep.py`: end-to-end runner. Reproduces the first clean forgetting setting (disjoint, seed 43, A 8 epochs, B 2 epochs, fresh-nonce familiar-template probes), then continues the **same saved `adapter_A`** once per replay fraction and writes `comparison_rNN.json`, `replay_sweep_summary.{json,md}` and `replay_tradeoff.png`. Existing outputs in `--root` are reused, so a previously trained A8 adapter can be copied in instead of retraining.
 - `prototype/tests/test_sequential_replay.py`: offline tests (matched budget, A-training-only replay, stratification, determinism, input validation, sweep plan, summary). Added to the sequential CI workflow.
 
+## KL anchor arm
+
+`prototype/sequential_kl.py` adds a second cheap preservation method on the same matched-budget curve. Before stage B, the frozen stage-A adapter's next-token distributions are cached on the reserved `reference_A.jsonl` prompts (never used for evaluation). During stage B each micro-step adds `w · KL(teacher ‖ student)` on one anchor prompt, cycling through all anchors in reshuffled passes. Stage-B examples and update counts are unchanged; each step costs one extra forward/backward pass. Run metadata logs the anchor KL per update.
+
+~~~bash
+.venv/bin/python prototype/sequential_train.py --stage B --train-data <root>/train_B.jsonl \
+  --prior-adapter <root>/adapter_A --kl-data <root>/reference_A.jsonl --kl-weight 1.0 --out <root>/adapter_AB_kl1
+.venv/bin/python prototype/sequential_replay_sweep.py --fractions 0 0.1 --kl-weights 0.5 1 2   # adds KL arms to the sweep
+~~~
+
 ## Also on this branch: paired McNemar release gate
 
 Peer review flagged that a fixed 2-point accuracy threshold sits inside sampling noise for a 300-prompt suite. `prototype/report.py` now always reports an exact one-sided McNemar test on the protected suite (regressions = base-pass → candidate-fail, gains = base-fail → candidate-pass), and `--gate mcnemar [--alpha 0.05]` blocks only when regressions significantly exceed gains. The default `--gate threshold` keeps the old behavior. On the midterm BANKING77 run (129 regressions vs 11 gains) the test gives p < 1e-20, so the BLOCK holds under either gate.

@@ -9,7 +9,8 @@ from pathlib import Path
 from prototype.sequential_data import generate
 from prototype.sequential_diagnose import item_from_prompt
 from prototype.sequential_replay import build_replay_mix, forbid_overlap, mode_of
-from prototype.sequential_replay_sweep import plan, run, summarize, tag
+from prototype.sequential_replay_sweep import kl_tag, plan, run, summarize, tag
+from prototype.sequential_kl import anchor_examples, anchor_schedule, response_positions
 
 
 def data():
@@ -127,7 +128,47 @@ class ReplaySweepTests(unittest.TestCase):
                     "replay": {"replay_examples": replayed}}))
             summary = summarize(root, [0.0, 0.1])
             self.assertEqual([r["A_new_failures"] for r in summary["rows"]], [5, 2])
-            self.assertTrue((root / "replay_sweep_summary.md").read_text().startswith("| Replay"))
+            self.assertTrue((root / "replay_sweep_summary.md").read_text().startswith("| Method"))
+
+
+class KLAnchorTests(unittest.TestCase):
+    def test_anchors_only_from_reference_set(self):
+        files = data()
+        anchors = anchor_examples(files["reference_A.jsonl"])
+        self.assertEqual(len(anchors), 12)
+        self.assertTrue(all(set(a) == {"prompt", "response"} for a in anchors))
+        held_out = {r["prompt"] for r in files["eval_combined_dev.jsonl"] + files["eval_combined_test.jsonl"]}
+        self.assertFalse({a["prompt"] for a in anchors} & held_out)
+        with self.assertRaises(ValueError):
+            anchor_examples(files["eval_A_dev.jsonl"])
+        with self.assertRaises(ValueError):
+            anchor_examples([])
+
+    def test_schedule_covers_anchors_evenly(self):
+        order = anchor_schedule(12, 30, 43)
+        self.assertEqual(len(order), 30)
+        self.assertEqual(sorted(order[:12]), list(range(12)))
+        self.assertEqual(sorted(order[12:24]), list(range(12)))
+        self.assertEqual(order, anchor_schedule(12, 30, 43))
+        with self.assertRaises(ValueError):
+            anchor_schedule(0, 5, 43)
+
+    def test_response_positions_shift(self):
+        self.assertEqual(response_positions([-100, -100, -100, 7, 8]), [2, 3])
+        with self.assertRaises(ValueError):
+            response_positions([-100, -100])
+
+    def test_sweep_plans_kl_arms(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            steps = plan(Path(tmp), [0.0], kl_weights=[0.5, 2.0])
+            kl_runs = [s for s in steps if s[0].startswith("train B (KL")]
+            self.assertEqual(len(kl_runs), 2)
+            cmd = kl_runs[0][1]
+            self.assertEqual(cmd[cmd.index("--kl-data") + 1], str(Path(tmp) / "reference_A.jsonl"))
+            self.assertEqual(cmd[cmd.index("--kl-weight") + 1], "0.5")
+            self.assertNotIn("--replay-frac", cmd)
+            self.assertEqual(cmd[cmd.index("--prior-adapter") + 1], str(Path(tmp) / "adapter_A"))
+            self.assertEqual(kl_tag(0.5), "kl0p5")
 
 
 if __name__ == "__main__":
